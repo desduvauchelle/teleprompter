@@ -6,7 +6,7 @@ This app allows you to have a teleprompter app that listens to your voice scroll
 
 ## Demo
 
-You can view a live demo of the app on GitHub Pages: [https://desduvauchelle.github.io/teleprompter]https://desduvauchelle.github.io/teleprompter)
+You can view a live demo of the app on GitHub Pages: [https://desduvauchelle.github.io/teleprompter](https://desduvauchelle.github.io/teleprompter)
 
 ## Getting Started
 
