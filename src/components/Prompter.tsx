@@ -1,5 +1,9 @@
 import { useState, useEffect, FC, useRef } from 'react'
 import Editor from './Editor'
+import mySpeechRecognition from '../tools/mySpeechRecognition'
+import sentenceMatching from '../tools/sentenceMatching'
+import prepText from '../tools/prepText'
+import { PromptSentence, PromptText, PrompterProps } from '../types/ITeleprompter'
 
 
 
@@ -46,46 +50,6 @@ declare global {
 	}
 }
 
-interface PrompterProps {
-	text: string,
-	setText: (text: string) => void
-}
-
-interface PromptWord {
-	id: string | number
-	text: string
-	hasBeenRead?: boolean
-}
-
-interface PromptSentence {
-	id: string | number
-	hasBeenRead?: boolean
-	words: PromptWord[]
-}
-
-type PromptText = PromptSentence[]
-
-const prepText = (text: string): PromptText => {
-	const output: PromptText = []
-
-	const sentences = text.split(/[\n.]+/).filter(sentence => sentence.trim() !== '' && !sentence.includes('...'))
-
-	sentences.forEach((sentence, sentenceIndex) => {
-		const words = sentence.trim().split(/\s+/).map((word, wordIndex) => ({
-			id: `${sentenceIndex}-${wordIndex}`,
-			text: word
-		}))
-
-		output.push({
-			id: sentenceIndex,
-			words
-		})
-	})
-
-	return output
-}
-
-
 const SentenceDisplay: FC<{
 	sentence: PromptSentence
 }> = ({ sentence }) => {
@@ -104,112 +68,7 @@ const SentenceDisplay: FC<{
 	)
 }
 
-let lastTranscript = ''
 
-const mySpeechRecognition = () => {
-	let recognition: SpeechRecognition | null = null
-	let isAlreadyRunning = false
-
-
-
-	const init = () => {
-
-		if ('webkitSpeechRecognition' in window) {
-			// @ts-expect-error - Property 'webkitSpeechRecognition' does not exist on type 'Window'
-			recognition = new webkitSpeechRecognition()
-			// @ts-expect-error - Object is possibly 'null'
-			recognition.continuous = true
-			// @ts-expect-error - Object is possibly 'null'
-			recognition.interimResults = true
-			console.log('Speech recognition initialized')
-		} else {
-			console.error('Speech recognition not supported')
-			// startBtn.disabled = true
-		}
-	}
-	init()
-
-
-	const listen = (onResult: (result: string[]) => void) => {
-		if (!recognition) return console.error('Speech recognition not initialized')
-		// Check if recognition is already running
-
-		if (isAlreadyRunning) return console.warn('Recognition is already running')
-		isAlreadyRunning = true
-		recognition.onresult = (event) => {
-			const results = event.results
-			const transcript = results[results.length - 1][0].transcript.trim()
-			const words = transcript.split(' ')
-
-			// Find the new words by comparing with the last transcript
-			const lastWords = lastTranscript.split(' ')
-			const newWords = words.slice(lastWords.length)
-
-			console.log('Transcript:', transcript)
-			console.log('New Words:', newWords)
-
-			// Update the last transcript
-			lastTranscript = transcript
-
-			onResult(newWords)
-		}
-
-		recognition.start()
-	}
-
-	const stop = () => {
-		if (!recognition) return
-		if (isAlreadyRunning === false) return
-		isAlreadyRunning = false
-		recognition.stop()
-	}
-
-	return {
-		listen,
-		stop
-	}
-}
-
-
-const sentenceMatching = ({
-	sentence,
-	spokenWords
-}: {
-	sentence: PromptSentence
-	spokenWords: string[]
-}): PromptSentence => {
-
-	const cleanStr = (text: string): string => text.toLowerCase().replace(/[^a-z0-9]/gi, '')
-	const cleanSpokenWords = spokenWords.map(cleanStr)
-
-	sentence.words.forEach((word, index) => {
-		if (word.hasBeenRead) return
-		const cleanWord = cleanStr(word.text)
-		if (cleanSpokenWords.includes(cleanWord)) {
-			word.hasBeenRead = true
-			// remove it from the spoken words
-			const spokenIndex = cleanSpokenWords.indexOf(cleanWord)
-			cleanSpokenWords.splice(spokenIndex, 1)
-			// Check if any of the previous words have not been read, if not mark those as read
-			for (let i = index - 1; i >= 0; i--) {
-				const previousWord = sentence.words[i]
-				if (!previousWord.hasBeenRead) {
-					previousWord.hasBeenRead = true
-				} else {
-					break
-				}
-			}
-		}
-	})
-
-	// Check if all the words in the sentence have been read, if so mark the sentence as read
-	const allWordsRead = sentence.words.every((word) => word.hasBeenRead)
-	if (allWordsRead) {
-		sentence.hasBeenRead = true
-	}
-	return sentence
-
-}
 
 const mySp = mySpeechRecognition()
 const Prompter: FC<PrompterProps> = ({ text, setText }) => {
@@ -221,6 +80,14 @@ const Prompter: FC<PrompterProps> = ({ text, setText }) => {
 	const recognition = useRef(mySp)
 	const wrapperDivRef = useRef<HTMLDivElement | null>(null)
 	const copyOfPreparedText = useRef<PromptText | undefined>()
+	const [isntCompatible, setIsntCompatible] = useState<boolean>(false)
+
+	useEffect(() => {
+		// if 'webkitSpeechRecognition' is not in window, then set isNotCompatible to true
+		if (!('webkitSpeechRecognition' in window)) {
+			setIsntCompatible(true)
+		}
+	}, [])
 
 	useEffect(() => {
 		const preparedText = prepText(text)
@@ -236,9 +103,9 @@ const Prompter: FC<PrompterProps> = ({ text, setText }) => {
 		const currentWord = currentSentence.words.find((word) => !word.hasBeenRead)
 		if (!currentWord) return
 		const wordElement = wrapperDivRef.current.querySelector(`span[data-id="${currentWord.id}"]`)
-		if (wordElement) {
-			wordElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
-		}
+		if (!wordElement) return
+		wordElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+
 	}, [preparedText])
 
 	useEffect(() => {
@@ -268,20 +135,29 @@ const Prompter: FC<PrompterProps> = ({ text, setText }) => {
 
 	}, [isRunning])
 
+
+
 	const handleStartStop = () => {
 		if (isRunning) {
 			recognition.current.stop()
 			setIsRunning(false)
-			// Reset the prepared text
-			const preparedText = prepText(text)
-			setPreparedText(preparedText)
-			copyOfPreparedText.current = preparedText
+
 			return
 		}
 		setIsRunning(true)
 
 	}
 
+	const reset = () => {
+		// Reset the prepared text
+		const preparedText = prepText(text)
+		setPreparedText(preparedText)
+		copyOfPreparedText.current = preparedText
+		if (isRunning) {
+			recognition.current.stop()
+			setIsRunning(false)
+		}
+	}
 	const onClickOfSentence = (sentenceId: string | number) => {
 		// Mark that sentence as unread and all previous as read
 		if (!preparedText) return
@@ -308,9 +184,19 @@ const Prompter: FC<PrompterProps> = ({ text, setText }) => {
 		setPreparedText(newPreparedText)
 	}
 
+
+
+	if (isntCompatible) {
+		return <div className="flex flex-col h-screen items-center justify-center">
+			<h1 className="text-4xl font-bold">Speech Recognition not supported</h1>
+		</div>
+	}
+
 	if (isEditingText) {
 		return <Editor text={text} onChange={setText} onClose={() => setIsEditingText(false)} />
 	}
+
+
 
 	return (
 		<div className="flex flex-col h-screen items-center w-full  overflow-hidden">
@@ -339,6 +225,11 @@ const Prompter: FC<PrompterProps> = ({ text, setText }) => {
 					onClick={handleStartStop}
 				>
 					{isRunning ? 'Stop' : 'Start'}
+				</button>
+				<button
+					className="bg-blue-500 text-white px-4 py-2 rounded"
+					onClick={reset}>
+					Reset
 				</button>
 				<button
 					className="bg-blue-500 text-white px-4 py-2 rounded"
