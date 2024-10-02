@@ -304,6 +304,7 @@ const Prompter: FC<PrompterProps> = ({ text, setText }) => {
 			}
 			return sentence
 		})
+		copyOfPreparedText.current = newPreparedText
 		setPreparedText(newPreparedText)
 	}
 
